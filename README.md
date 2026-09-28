@@ -2,9 +2,143 @@
 
 API e interface web para cadastrar, comentar, votar e acompanhar sugestões de melhorias de um produto. A aplicação centraliza propostas, registra discussões e permite acompanhar o status de cada sugestão.
 
-> **Estado do projeto:** em planejamento. Os modelos, as rotas e a estrutura descritos neste documento definem o escopo previsto. As instruções de instalação e execução serão adicionadas conforme os componentes estiverem disponíveis.
+> **Estado do projeto:** etapa 1 implementada e validada localmente. O backend Flask inicia, conecta ao PostgreSQL e disponibiliza `GET /health`. Os modelos, as demais rotas, as integrações de IA e a interface serão implementados nas próximas etapas.
 
 O plano detalhado, com cinco etapas e critérios de conclusão, está em [PLANO.md](PLANO.md).
+
+## Instalação e configuração — etapa 1
+
+Os comandos abaixo devem ser executados a partir da raiz do projeto, em um terminal Linux. É necessário ter Python 3, PostgreSQL instalado e em execução, o cliente `psql` e `curl`. A execução registrada nesta etapa utilizou Python 3.14.7.
+
+### 1. Preparar o ambiente virtual e instalar as dependências
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install -r backend/requirements.txt -r backend/requirements-dev.txt
+```
+
+As dependências incluem Flask, Flask-SQLAlchemy, SQLAlchemy, Flask-Migrate, `psycopg` e `python-dotenv`. O arquivo de desenvolvimento também instala o `pytest`, que será utilizado na etapa de testes.
+
+### 2. Criar o usuário e o banco PostgreSQL
+
+Em uma instalação local nova, abra o `psql` como o usuário de sistema `postgres`:
+
+```bash
+sudo -u postgres psql
+```
+
+Dentro do `psql`, execute:
+
+```sql
+CREATE ROLE sugestoes_app LOGIN;
+\password sugestoes_app
+CREATE DATABASE sugestoes_produto OWNER sugestoes_app;
+\q
+```
+
+O comando `\password` solicita a senha de forma interativa. O banco `sugestoes_produto` terá `sugestoes_app` como proprietário. Se esses recursos já estiverem criados, utilize-os sem repetir os comandos de criação.
+
+### 3. Configurar as variáveis de ambiente
+
+Na primeira configuração, copie o exemplo para um arquivo `.env` na raiz:
+
+```bash
+cp .env.example .env
+```
+
+Preencha o arquivo com os dados do PostgreSQL. Substitua o valor de `SUGESTOES_DB_PASSWORD` pela senha definida com `\password`:
+
+```dotenv
+SUGESTOES_DB_USER=sugestoes_app
+SUGESTOES_DB_PASSWORD="substitua_pela_senha_definida"
+SUGESTOES_DB_NAME=sugestoes_produto
+SUGESTOES_DB_HOST=127.0.0.1
+SUGESTOES_DB_PORT=5432
+
+TYPESAFE_API_KEY=
+RESUMO_API_KEY=
+```
+
+As chaves de IA podem ficar vazias nesta etapa; serão utilizadas na etapa 4. O `.gitignore` ignora `.env`, `.venv` e `__pycache__`. O `.env.example` registra os nomes das variáveis e permanece no repositório sem credenciais reais.
+
+## Execução e verificação
+
+### Iniciar o backend
+
+Na raiz do projeto, execute:
+
+```bash
+.venv/bin/flask --app backend.app run --debug
+```
+
+O comando utiliza o Flask instalado no ambiente virtual e localiza a função `create_app()` em `backend.app`. O servidor de desenvolvimento fica disponível em `http://127.0.0.1:5000`. Para encerrá-lo, pressione `Ctrl+C`.
+
+Registro da inicialização local. A mensagem sobre `psycopg2` no início da captura pertence a uma tentativa anterior, corrigida antes da execução bem-sucedida. O PIN do debugger foi ocultado na cópia incluída na documentação.
+
+<p align="center">
+  <a href="docs/images/subindo-app.png">
+    <img src="docs/images/subindo-app.png" alt="Backend Flask iniciado e requisição GET /health atendida com HTTP 200" width="560">
+  </a>
+</p>
+
+### Testar a rota de saúde
+
+Com o servidor em execução, abra outro terminal e execute:
+
+```bash
+curl -i http://127.0.0.1:5000/health
+```
+
+A rota executa `SELECT 1` no banco. Quando a conexão funciona, a resposta tem HTTP 200 e o seguinte corpo JSON:
+
+```http
+HTTP/1.1 200 OK
+Content-Type: application/json
+
+{
+  "database": "ok",
+  "status": "ok"
+}
+```
+
+Registro da resposta obtida com o PostgreSQL do projeto:
+
+<p align="center">
+  <a href="docs/images/testando-rota.png">
+    <img src="docs/images/testando-rota.png" alt="Teste com curl mostrando HTTP 200 e database e status iguais a ok" width="560">
+  </a>
+</p>
+
+Se a conexão com o banco falhar, incluindo falha de autenticação, a rota registra o erro nos logs e responde com HTTP 503:
+
+```json
+{
+  "database": "unavailable",
+  "status": "unavailable"
+}
+```
+
+### Ajuste do driver PostgreSQL
+
+Durante a implementação, o ambiente tinha `psycopg` versão 3, mas a URL utilizava `postgresql+psycopg2`, causando `ModuleNotFoundError: No module named 'psycopg2'`. O driver foi corrigido em `config.py` para `postgresql+psycopg`, correspondente à dependência `psycopg[binary]` deste projeto.
+
+Se o PostgreSQL rejeitar a autenticação, confira se a senha em `SUGESTOES_DB_PASSWORD` corresponde à senha do usuário `sugestoes_app`. Após alterar o `.env`, reinicie o backend e repita o teste de `/health`.
+
+## Organização do backend
+
+| Arquivo | Responsabilidade |
+| --- | --- |
+| `backend/__init__.py` | Declara o pacote `backend`. |
+| `backend/app/extensions.py` | Cria os objetos `db` e `migrate`, que serão vinculados à aplicação. |
+| `backend/app/config.py` | Define a classe `Config`, carrega as variáveis de ambiente e monta um objeto `URL` do SQLAlchemy com `build_database_url()`. |
+| `backend/app/__init__.py` | Implementa `create_app()`: carrega a configuração, aceita configurações de teste, define a URL do banco quando necessário, inicializa as extensões e registra o Blueprint. |
+| `backend/app/routes/__init__.py` | Declara o pacote de rotas. |
+| `backend/app/routes/health.py` | Cria o Blueprint `health_bp` e define a rota que verifica a conexão com o banco. |
+
+`health_bp = Blueprint("health", __name__)` cria o Blueprint. A função `health()` é associada a `GET /health` pelo decorador `@health_bp.get("/health")`. Suas rotas passam a fazer parte da aplicação quando `create_app()` chama `app.register_blueprint(health_bp)`.
+
+As configurações são carregadas antes de `db.init_app(app)` e `migrate.init_app(app, db)`. A requisição percorre o fluxo Flask → rota `health` → SQLAlchemy → PostgreSQL. O Flask-Migrate está preparado; os modelos e a primeira migração serão criados na etapa 2.
 
 ## Funcionamento previsto
 
@@ -30,7 +164,7 @@ A versão inicial prevê duas tabelas relacionadas e uma interface web para cada
 | Interface | React, TypeScript e Vite |
 | Versionamento | Git/GitHub, branches, commits e pull requests |
 
-O banco da aplicação será `sugestoes_produto`, com usuário `sugestoes_app` e variáveis `SUGESTOES_DB_*`. A chave `TYPESAFE_API_KEY` e a credencial do provedor de resumos ficarão apenas no backend, em configurações independentes. A suíte SQLite será isolada; as migrações também serão verificadas no PostgreSQL.
+O banco da aplicação é `sugestoes_produto`, com usuário `sugestoes_app` e variáveis `SUGESTOES_DB_*`. A chave `TYPESAFE_API_KEY` e a credencial do provedor de resumos ficarão apenas no backend, em configurações independentes. A suíte SQLite será isolada; as migrações também serão verificadas no PostgreSQL.
 
 O Jev será usado para escolher uma categoria entre os valores permitidos. Sua API retorna decisões estruturadas, probabilidades e confiança, sem geração de texto. [Documentação da TypeSafe](https://docs.typesafe.ai/introduction).
 
@@ -54,6 +188,8 @@ A geração do resumo ficará a cargo de um segundo provedor. Gemini e GroqCloud
 Textos obrigatórios compostos apenas por espaços são inválidos. IDs, datas e votos são definidos pelo servidor. Ao excluir uma sugestão, seus comentários também são excluídos.
 
 ## Contrato planejado da API
+
+`GET /health` está implementado na etapa 1. As demais rotas deste contrato serão entregues nas etapas 2 e 4.
 
 As operações recebem e devolvem JSON. As datas serão representadas no formato ISO 8601. As listas serão arrays, inclusive quando vazias.
 
@@ -95,9 +231,9 @@ Exemplo de resposta planejada de `/api/sugestoes/sugerir-resumo`:
 
 Cada resultado será exibido para confirmação. As chamadas de IA não criarão nem atualizarão uma sugestão automaticamente.
 
-## Estrutura planejada
+## Estrutura atual — etapa 1
 
-Os arquivos serão criados gradualmente, na etapa correspondente:
+Arquivos da base implementada e da documentação:
 
 ```text
 sugestoes-produto/
@@ -107,42 +243,22 @@ sugestoes-produto/
 │   │   ├── __init__.py             # cria a aplicação
 │   │   ├── config.py               # configuração por ambiente
 │   │   ├── extensions.py           # banco e migrações
-│   │   ├── models.py               # sugestão e comentário
-│   │   ├── validation.py           # campos e filtros
-│   │   ├── routes/
-│   │   │   ├── __init__.py
-│   │   │   ├── health.py
-│   │   │   └── sugestoes.py
-│   │   └── services/
+│   │   └── routes/
 │   │       ├── __init__.py
-│   │       ├── sugestoes.py        # regras, consultas e votos
-│   │       ├── sugestao_categoria.py # classificação com Jev, na etapa 4
-│   │       └── sugestao_resumo.py    # geração de texto, na etapa 4
-│   ├── tests/
-│   │   ├── conftest.py
-│   │   ├── test_sugestoes.py
-│   │   ├── test_regras.py
-│   │   ├── test_sugestao_categoria.py
-│   │   └── test_sugestao_resumo.py
+│   │       └── health.py           # GET /health
 │   ├── requirements.txt
 │   └── requirements-dev.txt
-├── frontend/                       # etapa 5
-│   ├── src/
-│   │   ├── App.tsx
-│   │   ├── api.ts
-│   │   ├── main.tsx
-│   │   └── styles.css
-│   ├── index.html
-│   ├── package.json
-│   ├── package-lock.json
-│   ├── tsconfig.json
-│   └── vite.config.ts
-├── migrations/                     # primeira versão na etapa 2
+├── docs/
+│   └── images/
+│       ├── subindo-app.png
+│       └── testando-rota.png
 ├── .env.example
 ├── .gitignore
 ├── PLANO.md
 └── README.md
 ```
+
+Os arquivos de modelos, serviços, demais rotas, testes, migrações e interface serão acrescentados nas etapas correspondentes. O `.env` e a `.venv` são criados localmente e não fazem parte do versionamento.
 
 ## Roteiro de implementação
 
