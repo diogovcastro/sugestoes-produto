@@ -76,11 +76,7 @@ O comando utiliza o Flask instalado no ambiente virtual e localiza a função `c
 
 Registro da inicialização local. A mensagem sobre `psycopg2` no início da captura pertence a uma tentativa anterior, corrigida antes da execução bem-sucedida. O PIN do debugger foi ocultado na cópia incluída na documentação.
 
-<p align="center">
-  <a href="docs/images/subindo-app.png">
-    <img src="docs/images/subindo-app.png" alt="Backend Flask iniciado e requisição GET /health atendida com HTTP 200" width="560">
-  </a>
-</p>
+![Backend Flask iniciado e requisição GET /health atendida com HTTP 200](docs/images/subindo-app.png)
 
 ### Testar a rota de saúde
 
@@ -104,11 +100,7 @@ Content-Type: application/json
 
 Registro da resposta obtida com o PostgreSQL do projeto:
 
-<p align="center">
-  <a href="docs/images/testando-rota.png">
-    <img src="docs/images/testando-rota.png" alt="Teste com curl mostrando HTTP 200 e database e status iguais a ok" width="560">
-  </a>
-</p>
+![Teste com curl mostrando HTTP 200 e database e status iguais a ok](docs/images/testando-rota.png)
 
 Se a conexão com o banco falhar, incluindo falha de autenticação, a rota registra o erro nos logs e responde com HTTP 503:
 
